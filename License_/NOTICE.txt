@@ -1,0 +1,10 @@
+The MoodScape Generator has been roughly adapted from Frederic Font's Freesound Timeline available at https://github.com/ffont/freesound-timeline
+The Freesound Timeline was focused mainly on retrieving and playing sounds determined by their date of upload.
+
+The MoodScape Generator adapts this idea to create soundscapes that are based on Moods.
+The MoodScape Generator uses the ANEW dataset to retrieve words with a specific value of valence, dominance and arousal.
+
+A set of functions have been added to retrieve this dataset and host it on the local server (onload(), createJSONData(), openANEW()).
+There are functions that have been added to implement K- Nearest Neighbor algorithm searches on this dataset (getKNearestNeighbor(), euclideanDistance(), getSortOrder())
+The retrieval functions have been changed to search for sounds based on moods / words rerieved from the dataset (search(),play())
+There have been functions added to automate the generation of the soundscape once the user makes a choice of input (property_change(), wordselect())

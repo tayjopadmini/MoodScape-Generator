@@ -1,0 +1,580 @@
+<!--
+****************************************************************************************************************************************************************
+*   The MoodScape Generator has been roughly adapted from Frederic Font's Freesound Timeline.
+*   The Freesound Timeline was focused mainly on retrieving and playing sounds determined by their date of upload.
+*   The MoodScape Generator adapts this idea to create soundscapes that are based on Moods.
+*   The MoodScape Generator uses the ANEW dataset to retrieve words with a specific value of valence, dominance and arousal.
+*    Title: index.html
+*    Author: Frederic Font
+*    Date: Nov 2017
+*    Availability: https://github.com/ffont/freesound-timeline
+*
+* 	A set of functions have been added to retrieve this dataset and host it on the local server (onload(), createJSONData(), openANEW()).
+*	  There are functions that have been added to implement K- Nearest Neighbor algorithm searches on this dataset (getKNearestNeighbor(), euclideanDistance(), getSortOrder())
+* 	The retrieval functions have been changed to search for sounds based on moods / words rerieved from the dataset (search(),play())
+* 	There have been functions added to automate the generation of the soundscape once the user makes a choice of input (property_change(), wordselect())
+****************************************************************************************************************************************************************
+/-->
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+<html>
+	<head>
+		<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0">
+		<title>Moodscape Generator</title>
+		<script type="text/javascript" src="freesound.js"></script>
+		<script src="audioengine.js"></script>
+		<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+		<meta charset="UTF-8">
+		<link href="slider.css" rel="stylesheet">
+		<style>
+			body {font-family: 'Helvetica', sans-serif; font-size: 12px; color:#333;}
+			h1 {font-family: Helvetiva, Arial; font-size:30px;}
+			a {color: #F31C36; text-decoration: none;}
+			a:visited {color: #F31C36;}
+			a:hover {color: #F31C36; text-decoration: underline;}
+			input { padding: 5px; border-radius: 4px; border: 1px #ddd solid; font-size: 12px; margin-bottom: 3px;}
+			button {
+				height: 29px;
+				border-radius: 12px;
+				padding-left: 10px;
+				padding-right: 10px;
+				border: 0px;
+				background-color: #F31C36;
+				color: white;
+				margin: 0px;
+				margin-bottom: 3px;
+				cursor:pointer;
+				font-size: 14px;
+			}
+			.slider_label {vertical-align: top; line-height: 19px; font-size: 14px; font-style: italic; font-weight: bolder; color: blue;}
+			button:hover {background-color: #f76576; }
+			.black_button {background-color: #333; }
+			.black_button:hover {background-color: #888; }
+			.red_text {color:#F31C36; }
+			.gray_text {color:#888; }
+			#evolution_percentage_indicator {
+				display: none; /* must be set to inline-block in code  */
+				width: 100px;
+				height: 24px;
+				background-color: #ffc9cf;
+				vertical-align: top;
+				margin-bottom: 5px;
+			}
+			#evolution_percentage_indicator_loader {
+				background-color: #F31C36;
+				width: 0%;
+				height: 100%;
+			}
+			@keyframes flash_input {
+			    from { background-color: #ffc9cf; }
+			    to { background-color: #fff; }
+
+			}
+			.flash_input {
+			    animation-name: flash_input;
+			    animation-duration: 900ms;
+			}
+		</style>
+	</head>
+	<body>
+		<script type="text/javascript">
+
+			// Global variables and init
+
+			var soundscape_compleixty = 0.4;
+			var soundscape_complexity_interval = 3000;
+			var query_page_size = 15;
+			var play_timers = [];
+			var am = undefined; // Audio manager
+			var currentlyPlayedSounds = [];
+			var incomingSounds = [];
+			var incomingSoundsCopy = [];
+			var evolutionTimer = undefined;
+			var evolutionCurrentStep = 0;
+			var evolutionResolution = 100;
+			var evolutionTimeInterval = (90 * 1000)/evolutionResolution;
+
+
+			window.onload = function(){
+				freesound.setToken("3tD12OlunuWwjHGuZUMw3rajbiqJb9QQ236FOhxm");
+
+				$.ajax({
+			    url: "ANEW2010All.txt", // path to file
+			    dataType: 'text', // type of file (text, json, xml, etc)
+			    success: function(data) { // callback for successful completion
+			      createJsonData(data);
+			    },
+			    error: function() { // callback if there's an error
+			      alert("Error in Reading File");
+			    }
+			  	});
+
+			};
+
+			function initSoundArrays(){
+				currentlyPlayedSounds = [];
+				incomingSounds = [];
+				incomingSoundsCopy = [];
+				play_timers = [];
+			}
+
+			// Audio stuff
+
+			function lazyInitAudioManager(){
+				// Lazily initialize audio manager
+				// We only init audio manager when we really need it (when a sound is to be played)
+				// In this way we expect to avoid restrictions in browsers where audio
+				// is only played when users have made some interactions
+				if (am === undefined) {
+					am = initAudioManager();
+					document.getElementById('volume').value = 0.5;
+					setVolume();
+				}
+			}
+
+			function playSound(name,url){
+
+				// Only play sound if a random number is above a specific probability, otherwise try
+				// again after some time.
+				if (Math.random() >= (1.0 - soundscape_compleixty)) {
+					clearPlayTimersForSound(url); // Remove existing play timer for this sound (if any)
+					document.getElementById("respSearch").innerHTML = "Playing: " + name;
+					am.playSoundFromURL(url, 0, {
+						panHRTF: {x:randomBetween(-1.0, 1.0), y:randomBetween(-2.0, 2.0), z:randomBetween(-2.0, 2.0) },
+						onended: function(event){
+							playSound(name, url);  // On end, play again the sound
+							// NOTE: we don't use Web Audio API loop prop here as it does not trigger onended event
+							}
+					});
+					if (document.getElementById("panic2").offsetParent !== null){
+						document.getElementById("panic2").style.display = 'none';
+						document.getElementById("panic1").style.display = 'block';
+						document.getElementById("volumeDisplay").style.display = 'block';
+					}
+
+				} else {
+					var play_timer = setTimeout(function(){
+						playSound(name, url);
+					}, soundscape_complexity_interval);
+					play_timers.push({name: url, timer: play_timer});
+				}
+			}
+
+			function playCurrentSounds(){
+				// Compare currentlyPlayedSounds and the sounds that are really being played in am:
+
+				var currentBufferNodes = am.getAllUniqueBufferNodesList();
+				var nAddedToPlay = 0;
+				var nRemovedFromPlay = 0;
+
+				// 1) add sounds to am which are not really being played but are in currentlyPlayedSounds
+				for (i in play_timers){
+					currentBufferNodes.push(play_timers[i].name);  // Expand with sound URLs which are waiting to be played in timer
+				}
+				for (i in currentlyPlayedSounds){
+                    var snd = currentlyPlayedSounds[i];
+                    var url = snd.previews['preview-hq-mp3']; // ogg seems to fail on safari...
+                    if (currentBufferNodes.indexOf(url) === -1){
+                    	// If sound not present in buffer, start to play it
+                    	var label = '<a href="' + snd.url + '" target="_blank">' + snd.name + '</a> by <b>' + snd.username + '</b>';
+                    	playSound(label, url);
+                    	//console.log('Adding sound to play ', url);
+                    	nAddedToPlay += 1;
+                    }
+                }
+
+                // 2) remove sounds from am which are not in currentlyPlayedSounds
+                var currentlyPlayedSoundsURLs = currentlyPlayedSounds.map(x => x.previews['preview-hq-mp3']);  // Get currently played sound URLs (useful later)
+
+				for (i in currentBufferNodes){
+					var name = currentBufferNodes[i];
+					if (currentlyPlayedSoundsURLs.indexOf(name) === -1){
+						// If buffer not present in sounds, remove it
+						am.stopBufferNodesForSound(name, disableOnEnded=true, hardStop=true, removeBuffer=true);
+						nRemovedFromPlay += 1;
+					}
+				}
+
+				if ((nAddedToPlay > 0) || (nRemovedFromPlay > 0)){
+					console.log(nAddedToPlay + ' sound added to play, ' + nRemovedFromPlay + ' removed');
+				}
+
+				// 3) Update attribution list accordingly
+				document.getElementById('attributionList').innerHTML = '<span class="gray_text">Sounds used:</span> <br><br>';
+				for (i in currentlyPlayedSounds){
+                    var snd = currentlyPlayedSounds[i];
+                    var label = '<a href="' + snd.url + '" target="_blank">' + snd.name + '</a> by <b>' + snd.username + '</b>';
+                    document.getElementById('attributionList').innerHTML +=
+                    	label + ' | <a href="' + snd.license + '" target="_blank">' + getLicenseName(snd.license) + '</a><br>'
+                }
+
+			}
+
+			function clearPlayTimersForSound(url){
+				var new_play_timers = [];
+				for (var i =0;i<play_timers.length;i++){
+					if (play_timers[i].name === url){
+						var timer = play_timers[i].timer;
+						clearTimeout(timer);
+					} else {
+						new_play_timers.push(play_timers[i]);
+					}
+				}
+				play_timers = new_play_timers;
+			}
+
+			function stopAllSounds(){
+
+				// Stop all playing audio buffers (if am was ever initialized only)
+				am.stopAllBufferNodes(disableOnEnded=true, hardStop=true, removeBuffers=true);
+
+				// Clear all existing timeouts
+				for (var i =0;i<play_timers.length;i++){
+					var timer = play_timers[i].timer;
+					clearTimeout(timer);
+				}
+				play_timers = [];
+
+				// Update UI
+				document.getElementById("panic1").style.display = 'none';
+				document.getElementById("panic2").style.display = 'block';
+				document.getElementById("volumeDisplay").style.display = 'none';
+				document.getElementById("respSearch").innerHTML = "";
+			}
+
+			function softStopAllSounds() {
+				// Stop all playing audio buffers (if am was ever initialized only)
+				am.stopAllBufferNodes(disableOnEnded=true, hardStop=false, removeBuffers=true);
+
+				// Clear all existing timeouts
+				for (var i =0;i<=play_timers.length;i++){
+					var timer = play_timers[i].timer;
+					clearTimeout(timer);
+				}
+				play_timers = [];
+
+			}
+
+
+			// Util functions
+
+			function randomBetween(min, max) {
+				// from https://stackoverflow.com/questions/4959975/generate-random-number-between-two-numbers-in-javascript
+			    if (min < 0) {
+			        return min + Math.random() * (Math.abs(min)+max);
+			    }else {
+			        return min + Math.random() * max;
+			    }
+			}
+
+			function shuffleArray(array) {
+				// from https://stackoverflow.com/questions/2450954/how-to-randomize-shuffle-a-javascript-array
+			    for (var i = array.length - 1; i > 0; i--) {
+			        var j = Math.floor(Math.random() * (i + 1));
+			        var temp = array[i];
+			        array[i] = array[j];
+			        array[j] = temp;
+			    }
+			}
+
+
+			function setHash(){
+				var hash = getCurrentEvolutionPercentage();
+						   ;
+				parent.location.hash = hash;
+			}
+
+			function getLicenseName(license_url){
+				return {
+					'http://creativecommons.org/licenses/by/3.0/': 'CC-BY',
+					'http://creativecommons.org/publicdomain/zero/1.0/': 'CC0',
+					'http://creativecommons.org/licenses/by-nc/3.0/': 'CC-BY-NC',
+					'http://creativecommons.org/licenses/sampling+/1.0/': 'CC-S+',
+				}[license_url]
+
+			}
+
+
+
+
+			function getCurrentEvolutionPercentage(){
+				return Math.ceil(100 * (evolutionCurrentStep) / evolutionResolution);
+			}
+
+			function displayEvolutionProgress(){
+				var percentage = getCurrentEvolutionPercentage();
+				// If evolution is active
+				document.getElementById('evolution_percentage_indicator').style.display = 'inline-block';
+				document.getElementById('evolution_percentage_indicator_loader').style.width = parseInt(percentage, 10) + '%';
+			}
+
+			function hideEvolutionProgress(){
+				document.getElementById('evolution_percentage_indicator').style.display = 'none';
+			}
+
+
+
+			function play(selectedword){ // function to play the chosen word's soundscape
+				console.log(selectedword)
+
+				lazyInitAudioManager(); // Init audio context here in response to user action
+				stopAllSounds();
+				initSoundArrays();
+				setHash();
+
+
+				var agenre = selectedword
+				//console.log(agenre)
+				var amood = "";
+				//console.log(amood);
+				search(agenre, amood, function(data){ //call to the search function passing the search term as the selected word
+	            	sounds = data.results;
+	            	if (data.results.length === 0) {
+	            		document.getElementById("respSearch").innerHTML = "No results...";
+	            	} else {
+	            		document.getElementById("respSearch").innerHTML = "Loading sounds... will begin playing at any moment...";
+		            	//shuffleArray(sounds);
+						currentlyPlayedSounds = sounds;
+						document.getElementById("themedisplay").innerHTML = "Generating a soundscape based on the theme " + selectedword;
+						playCurrentSounds();
+
+	            	}
+		        });
+			}
+
+
+
+
+			function setVolume(){ // volume function
+				value = document.getElementById('volume').value;
+				am.setMainVolume(value);
+			}
+
+
+			function panic(){ //function gor the Halt button
+				if (evolutionTimer !== undefined){
+					stopEvolution();
+				}
+				stopAllSounds();
+				initSoundArrays();
+				document.getElementById('attributionList').innerHTML = '';
+				document.getElementById('themedisplay').innerHTML = '';
+				document.location.reload();
+			}
+
+			// Search and interaction with Freesound
+
+			function search(genre, mood, onSuccess, onFailure){ // text search function
+
+				var query = genre
+				//var q = ["relaxing","melody"];
+				var p = 1;
+				var fields = "id,name,previews,username,license,url"
+				var s = "rating_desc"; // Default is by ratings
+
+				var moodterm = mood
+
+
+				freesound.textSearch(query, {page:p, sort:s, fields:fields, page_size:query_page_size}, // calls the text search funtion from freesound.js
+		            function(data){
+		            	// Process successful response
+		            	onSuccess(data);
+		            },function(){
+		            	// Process error response
+		            	document.getElementById("respSearch").innerHTML = "Error while searching...";
+		            	if (onFailure !== undefined){
+		            		onFailure();
+		            	}
+		            }
+		        );
+				document.getElementById("respSearch").innerHTML = "Waiting for results...";
+			}
+
+
+
+			var final_data = [];
+
+			function createJsonData(data){
+				var dataArray = data.split('\n');
+				var headers =  dataArray[0].trim().split('\t'); // Reads Headers From Input File
+
+			    for(var i=1; i<dataArray.length; i++){ // Main Loop To Iterate Over Each Row Of Input File
+			    	var dataObj = {};
+			    	var wordsArray =  dataArray[i].trim().split('\t');
+
+			      	if(wordsArray.length == headers.length){ // Data Length Check.
+
+			      		for(var j=0; j<headers.length; j++){ //Data Loop To Create Json Objects.
+							dataObj[headers[j]] = wordsArray[j];
+						}
+						final_data.push(dataObj);
+			      	}// Data Length Chck Ends
+
+			      }// Main loop Ends
+					}
+
+					function wordselect(selectedword)
+					{
+						console.log(selectedword)
+					}
+
+					function euclideanDistance(point1, ValMn, AroMn, DomMn){
+					  var distance = 0;
+					  distance += Math.pow(parseFloat(point1.ValMn)- parseFloat(ValMn),2); //calculates the square of the distance between slider valence point and word valence
+					  distance += Math.pow(parseFloat(point1.AroMn)- parseFloat(AroMn),2); //calculates the square of the distance between slider arousal point and word arousal
+					  distance += Math.pow(parseFloat(point1.DomMn)- parseFloat(DomMn),2); //calculates the square of the distance between slider dominance point and word dominance
+					  return Math.sqrt(distance);//sqyareroot of sum of squares of distances
+					}
+
+					function getKNearestNeighbors(ValMn, AroMn, DomMn, k){ //function to retrieve k nearest neighbors
+					  final_data_distances = [];
+					  for(var i=0; i<final_data.length; i++){
+					    var obj = final_data[i];
+					    dist = euclideanDistance(obj, ValMn, AroMn, DomMn); //for every word in the dataset, calculate its Euclidean distance
+					    obj["eucDist"] = dist; //store the Euclidean distance as a new attribute to each word object
+					    final_data_distances.push(obj); //create a copy of the JS object and pust this new attribute to it
+					  }
+					  final_data_distances.sort(GetSortOrder("eucDist")); //function to sort Euclidean distances of each word
+					  console.log(final_data_distances.slice(0,k));
+						play(final_data_distances[0].Word);
+					  return final_data_distances.slice(0,k); //returns K nearest words to calling function
+					}
+
+					function property_change() //checks for property changes on the sliders and updates the functions and UI
+					{
+						var i;
+						var k=document.getElementById('knnslider').value;
+						var text="";
+						var value_valence = document.getElementById('valslider').value;
+						var value_arousal = document.getElementById('aroslider').value;
+						var value_dominance = document.getElementById('domslider').value;
+						getKNearestNeighbors(value_valence,value_arousal,value_dominance,k);
+						for(i=0;i<k;i++)
+						{
+							text += "<a style='cursor:pointer;' onClick= play('"+final_data_distances[i].Word+"')>"+final_data_distances[i].Word+" | "+final_data_distances[i].eucDist.toFixed(2) +"</a><br>";
+							//Makes the retrieved words clickable to call the play() function
+						}
+						document.getElementById("demo").innerHTML = text;
+
+					}
+
+					function GetSortOrder(prop) { //function to sort the Euclidean distances
+					  return function(a, b) {
+					    if (a[prop] > b[prop]) {
+					      return 1;
+					    } else if (a[prop] < b[prop]) {
+					      return -1;
+					    }
+					      return 0;
+					    }
+					}
+
+					function openANEW() {
+					    window.open("ANEW2010All.txt", "_blank", "scrollbars=yes,resizable=yes,top=500,left=500,width=600,height=400");
+						}
+
+			</script>
+			<br>
+			<h1 style="text-align: center; position:relative; right : -16px;"><font color="blue">Mood</font><span class="red_text">Scape</span><font color="blue"> Generator</font></h1>
+			<br>
+
+				<div class="valenceslider" style="text-align:center;">
+				<span class="slider_label">Valence:</span><input type="range" min="1" max="10" value="7.65" step="0.01" class="slider" id="valslider" style = "margin-right: -2px;">
+					<p style = "font-size: 14px; font-style: italic;">On a scale of 1 to 10 how happy (or sad) shoud your MoodScape be?  <span id="demo_val" style = "color:red; font-weight: bolder;"></span></p>
+				</div>
+
+				<script>
+				var valslider = document.getElementById("valslider");
+				var output = document.getElementById("demo_val");
+				output.innerHTML = valslider.value;
+
+				valslider.oninput = function() {
+					output.innerHTML = this.value;
+				}
+				</script>
+
+				<div class="arousalslider" style="text-align:center;">
+					<span class="slider_label">Arousal:</span><input type="range" min="1" max="10" value="4.37" step="0.01" class="slider" id="aroslider" style = "margin-right: -7px;">
+					<p style = "font-size: 14px; font-style: italic; ">On a scale of 1 to 10 how excited (or calm) should your MoodScape be?  <span id="demo_aro" style = "color:red; font-weight: bolder;"></span></p>
+				</div>
+
+				<script>
+				var aroslider = document.getElementById("aroslider");
+				var output_aro = document.getElementById("demo_aro");
+				output_aro.innerHTML = aroslider.value;
+
+				aroslider.oninput = function() {
+					output_aro.innerHTML = this.value;
+				}
+				</script>
+
+				<div class="dominanceslider" style="text-align:center;">
+					<span class="slider_label">Dominance:</span><input type="range" min="1" max="10" value="4.95" step="0.01" class="slider" id="domslider" style = "margin-right: 14px;">
+					<p style = "font-size: 14px; font-style: italic;">On a scale of 1 to 10 how dominant should your MoodScape be?  <span id="demo_dom" style = "color:red; font-weight: bolder;"></span></p>
+				</div>
+
+				<script>
+				var domslider = document.getElementById("domslider");
+				var output_dom = document.getElementById("demo_dom");
+				output_dom.innerHTML = domslider.value;
+
+				domslider.oninput = function() {
+					output_dom.innerHTML = this.value;
+				}
+				</script>
+
+				<div class="knnslider" style="text-align:center;">
+					<span class="slider_label">Number of Themes:</span><input type="range" min="1" max="10" value="4" step="1" class="slider" id="knnslider" style = "margin-right: 64px; ">
+					<p> <span id="demo_knn"style="
+	    								right: -139px;
+	    								top: -32px;
+	    								position: relative;
+	    								font-size: 14px;
+	    								font-style: italic;
+	    								font-weight: bolder;
+	    								color:red;">
+
+						</span>
+					</p>
+				</div>
+
+				<script>
+				var knnslider = document.getElementById("knnslider");
+				var output_knn = document.getElementById("demo_knn");
+				output_knn.innerHTML = knnslider.value;
+
+				knnslider.oninput = function() {
+					output_knn.innerHTML = this.value;
+				}
+				</script>
+
+				<br>
+			<div style="text-align:center; top: -35px; position: relative; right: -13px;">
+			 <button id="prop_change" onclick="property_change()">Search!</button>
+			 <br>
+			 <p id="demo"></p>
+			 </div>
+				</p>
+
+				<div style="text-align:center;">
+					<br>
+					<div  id="themedisplay" style="text-align:center; font-weight: bolder; color: blue"></div>
+				<br><div>
+					<span id="respSearch"></span>
+					<br>
+					<br>
+					<div id="volumeDisplay" style="display:none;"><span class="slider_label">volume:</span> <input id="volume" type="range" min=0.0 max=1.0 step='.05' value=1.0 oninput="setVolume()" onchange="setVolume()"></div>
+				</div>
+				<br>
+					<div id="panic1" style="display:none"><button id="stopAllSounds" class="black_button" onclick="panic()">Halt!</button></div>
+					<div id="panic2"></div>
+				<br>
+				<div id="attributionList"></div>
+				<br>
+				<br>
+				<p id="demo"></p>
+			</div>
+			<br>
+			<p style="text-align: center"><font color="blue">Click</font><span class="red_text"><a href="javascript:openANEW()"> here</a></span><font color="blue"> to see the ANEW Dataset.</font></h1>
+		</body>
+	</html>
