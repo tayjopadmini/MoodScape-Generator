@@ -1,4 +1,4 @@
-The MoodScape Generator has been roughly adapted from Frederic Font's Freesound Timeline available at https://github.com/ffont/freesound-timeline
+The MoodScape Generator https://github.com/tayjopadmini/MoodScape-Generator has been roughly adapted from Frederic Font's Freesound Timeline available at https://github.com/ffont/freesound-timeline
 The Freesound Timeline was focused mainly on retrieving and playing sounds determined by their date of upload.
 
 The MoodScape Generator adapts this idea to create soundscapes that are based on Moods.
