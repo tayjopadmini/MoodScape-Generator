@@ -1,5 +1,8 @@
 # MoodScape Generator
+Interactive version of the tool available at:
+https://tayjopadmini.github.io/MoodScape-Generator/#0
 
+Running from local machine:
 The files required to run the tool are
 freesound.js
 audioengine.js
