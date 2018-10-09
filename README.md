@@ -14,7 +14,7 @@ Localhost:Port_number/Name_of_HTML_file_to _run
 
 In this case:
 
-http://localhost:Port_Number/MoodScape_Generator.html
+http://localhost:Port_Number/index.html
 
 In the supporting files, there also exists a file called SearchBox Version.html.
 This is the version compared against the MoodScape_Generator in the user study.
